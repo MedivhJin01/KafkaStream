@@ -1,4 +1,5 @@
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
@@ -11,6 +12,7 @@ import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.state.KeyValueStore;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.Properties;
@@ -39,6 +41,38 @@ public class A4Application {
 		// add code here if you need any additional configuration options
 
 		StreamsBuilder builder = new StreamsBuilder();
+
+		KStream<String, String> students = builder.stream(studentTopic);
+		KStream<String, String> classrooms = builder.stream(classroomTopic);
+
+		KTable<String, String> studentToclassroom = students.groupByKey().reduce((k, v) -> v);
+		KTable<String, String> classroomTocapacity = classrooms.groupByKey().reduce((k, v) -> v);
+		KTable<String, Long> classroomTostudents = studentToclassroom.groupBy((k, v) -> new KeyValue<>(v, k)).count();
+		KTable<String, String> classroomStatus = classroomTocapacity.join(classroomTostudents, (v1, v2) -> {return v1.toString() + "," + v2.toString();});
+
+
+		KTable<String, String> output = classroomStatus.toStream().groupByKey().aggregate(
+			() -> null,
+			(k, v, va) -> {
+				String[] vpair = v.split(",");
+				int capacity = Integer.parseInt(vpair[0]);
+				int studentnum = Integer.parseInt(vpair[1]);
+				if(studentnum > capacity){
+					return String.valueOf(studentnum);
+				}
+				else {
+					if(StringUtils.isNumeric(va)){
+						return "OK";
+					}
+					else{
+						return null;
+					}
+				}
+			}
+		);
+
+		output.toStream().filter((k, v) -> v != null).to(outputTopic, Produced.with(Serdes.String(), Serdes.String()));
+
 
 		// add code here
 		// 
